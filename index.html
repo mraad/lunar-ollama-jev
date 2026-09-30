@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lunar Jev · Ollama decisions, live</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="sim.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <div><div class="eyebrow">LUNAR LANDING LABORATORY</div><h1>Lunar Jev</h1></div>
+  <div class="badge">● &nbsp; LIVE · OLLAMA /v1/systemone</div>
+</header>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="controls card">
+  <label>OLLAMA HOST<input id="host" type="url" spellcheck="false"></label>
+  <label>DECISION MODEL<select id="model" aria-label="Decision model"></select></label>
+  <label>PILOT<select id="pilot"><option value="assisted">assisted · model + guidance veto</option><option value="jev">jev · model alone</option><option value="baseline">baseline · guidance only</option></select></label>
+  <label>SEED · start x, drift, tilt<span class="seed-row"><input id="seed" type="number" value="0" min="0" step="1"><button id="random" class="ghost" type="button" title="Random starting position and orientation">Random</button></span></label>
+  <label>PAD<select id="pad"><option value="0">01 · 2×</option><option value="1" selected>02 · 1×</option><option value="2">03 · 4×</option></select></label>
+  <label>SPEED<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="4">4×</option><option value="0">max</option></select></label>
+  <button id="launch" disabled>▲ Launch</button>
+</div>
+<div class="flight-grid">
+  <div>
+    <div class="scene card">
+      <div class="scene-top"><span><span class="dot"></span> <b id="mission-label">MISSION</b></span><span id="frame-label">DECISION 0</span></div>
+      <div class="metrics"><div><label>PAD ALTITUDE</label><strong id="altitude">—</strong></div><div><label>VERTICAL SPEED</label><strong id="vertical">—</strong></div><div><label>HORIZONTAL SPEED</label><strong id="horizontal">—</strong></div><div><label>FUEL REMAINING</label><strong id="fuel">—</strong></div></div>
+      <canvas id="flight-canvas" width="1100" height="520" aria-label="Live lunar flight above terrain"></canvas>
+      <div class="scene-bottom"><span id="flight-status">READY</span><span id="mission-time">T+ 0.00 s</span><span id="tilt">TILT —</span></div>
+    </div>
+    <div class="flight-footer"><span>Landing: |vx| ≤ 2 m/s &nbsp; · &nbsp; descent ≤ 3 m/s &nbsp; · &nbsp; |tilt| ≤ 8°</span><a id="download" hidden>Download recording ↗</a></div>
+    <div class="card table-wrap"><div class="section-title">FLIGHT LOG · this session</div>
+      <table><thead><tr><th>Pilot</th><th>Model</th><th>Seed / pad</th><th>Outcome</th><th>Score</th><th>Overrides</th><th>P50 decision</th></tr></thead><tbody id="log"></tbody></table></div>
+  </div>
+  <aside class="telemetry">
+    <section class="card decision"><div class="section-title">DECISION ENGINE <span id="engine-tag">—</span></div><p id="pilot-description"></p><div id="probabilities">Launch a flight to see the model's answers.</div><div class="command-row"><span>Proposed</span><strong id="proposed">—</strong></div><div class="command-row"><span>Executed</span><strong id="executed">—</strong></div><div id="intervention" class="intervention">—</div><div class="latency"><span>DECISION LATENCY</span><strong id="latency">—</strong></div></section>
+    <details class="card"><summary>Inspect model input (the Jev state string)</summary><pre id="prompt"></pre></details>
+    <details class="card"><summary>How it works</summary>
+      <p>Every 0.2 simulated seconds the browser turns telemetry plus a guidance hint into one sentence and POSTs it to your local Ollama at <code>/v1/systemone</code> with two <code>choice</code> questions: rotation (left / hold / right) and engine (off / half / full). The model answers with a probability per option and no generated text. The chosen options become the next command, plain JavaScript integrates the physics, and the next question goes out while this stage animates.</p>
+      <p>Physics and guidance are a line-for-line port of <b>lunar-laya</b>. Nothing leaves this machine: no CDN, no cloud, no build step.</p>
+    </details>
+  </aside>
+</div>
+<footer><span>Original lunar simulation · Jev-style decisions on Ollama · VanillaJS</span><span>Space bar is not a control; the model is the pilot.</span></footer>
+</body>
+</html>
