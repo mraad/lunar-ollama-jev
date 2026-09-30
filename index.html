@@ -19,7 +19,7 @@
   <label>DECISION MODEL<select id="model" aria-label="Decision model"></select></label>
   <label>PILOT<select id="pilot"><option value="assisted">assisted · model + guidance veto</option><option value="jev">jev · model alone</option><option value="baseline">baseline · guidance only</option></select></label>
   <label>SEED · start x, drift, tilt<span class="seed-row"><input id="seed" type="number" value="0" min="0" step="1"><button id="random" class="ghost" type="button" title="Random starting position and orientation">Random</button></span></label>
-  <label>PAD<select id="pad"><option value="0">01 · 2×</option><option value="1" selected>02 · 1×</option><option value="2">03 · 4×</option></select></label>
+  <label>PAD<select id="pad"></select></label>
   <label>SPEED<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="4">4×</option><option value="0">max</option></select></label>
   <button id="launch" disabled>▲ Launch</button>
 </div>
@@ -36,7 +36,7 @@
       <table><thead><tr><th>Pilot</th><th>Model</th><th>Seed / pad</th><th>Outcome</th><th>Score</th><th>Overrides</th><th>P50 decision</th></tr></thead><tbody id="log"></tbody></table></div>
   </div>
   <aside class="telemetry">
-    <section class="card decision"><div class="section-title">DECISION ENGINE <span id="engine-tag">—</span></div><p id="pilot-description"></p><div id="probabilities">Launch a flight to see the model's answers.</div><div class="command-row"><span>Proposed</span><strong id="proposed">—</strong></div><div class="command-row"><span>Executed</span><strong id="executed">—</strong></div><div id="intervention" class="intervention">—</div><div class="latency"><span>DECISION LATENCY</span><strong id="latency">—</strong></div></section>
+    <section class="card"><div class="section-title">DECISION ENGINE <span id="engine-tag">—</span></div><p id="pilot-description"></p><div id="probabilities">Launch a flight to see the model's answers.</div><div class="command-row"><span>Proposed</span><strong id="proposed">—</strong></div><div class="command-row"><span>Executed</span><strong id="executed">—</strong></div><div id="intervention" class="intervention">—</div><div class="latency"><span>DECISION LATENCY</span><strong id="latency">—</strong></div></section>
     <details class="card"><summary>Inspect model input (the Jev state string)</summary><pre id="prompt"></pre></details>
     <details class="card"><summary>How it works</summary>
       <p>Every 0.2 simulated seconds the browser turns telemetry plus a guidance hint into one sentence and POSTs it to your local Ollama at <code>/v1/systemone</code> with two <code>choice</code> questions: rotation (left / hold / right) and engine (off / half / full). The model answers with a probability per option and no generated text. The chosen options become the next command, plain JavaScript integrates the physics, and the next question goes out while this stage animates.</p>

@@ -2,7 +2,7 @@
 
 const $ = id => document.getElementById(id);
 const canvas = $("flight-canvas"), ctx = canvas.getContext("2d");
-const run = {game: null, frames: [], frame: null, blend: 0, abort: null, log: []};
+const run = {game: null, frames: [], abort: null};
 const DESCRIPTIONS = {
   baseline: "Deterministic PD guidance flies the ship. No model call.",
   jev: "The Jev model's answers execute directly. No overrides.",
@@ -15,12 +15,9 @@ $("host").onchange = () => { localStorage.setItem("host", $("host").value); load
 async function loadModels() {
   $("model").replaceChildren();
   try {
-    const response = await fetch(`${$("host").value}/api/tags`);
-    const tags = (await response.json()).models.filter(m => m.capabilities?.includes("decision"));
+    const tags = await decisionModels($("host").value);
     if (!tags.length) throw new Error("No decision model installed. Run: ollama pull tev1:0.8b");
-    tags.sort((a, b) => a.size - b.size); // smallest first: it is the one that keeps up with 1x playback
     for (const m of tags) $("model").append(new Option(`${m.name} · ${m.details.parameter_size}`, m.name));
-    $("model").value = tags[0].name;
     $("notice").textContent = "";
     $("launch").disabled = false;
   } catch (error) {
@@ -29,47 +26,35 @@ async function loadModels() {
   }
 }
 
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 async function launch() {
   if (run.abort) { run.abort.abort(); return; }
-  const abort = new AbortController(), signal = abort.signal;
-  run.abort = abort;
-  const opts = {mode: $("pilot").value, host: $("host").value, model: $("model").value, signal};
-  const game = new Game(Number($("seed").value), Number($("pad").value));
-  run.game = game; run.frames = []; run.frame = null;
+  preview();
+  run.abort = new AbortController();
+  const opts = {mode: $("pilot").value, host: $("host").value, model: $("model").value, signal: run.abort.signal};
   $("launch").textContent = "■ Abort";
   $("notice").textContent = "";
-  $("pilot-description").textContent = DESCRIPTIONS[opts.mode];
   $("engine-tag").textContent = opts.mode === "baseline" ? "GUIDANCE" : opts.model;
   try {
-    let before = game.snapshot(), next = decide(game, opts);
-    while (game.state.status === "flying" && run.frames.length < 900) {
-      const {command, decision} = await next;
-      const after = game.step(command);
-      run.frame = {before, decision, after};
-      run.frames.push(run.frame);
-      // Ask for the next decision while this 0.2 s stage animates, so model latency
-      // under one stage costs no wall time at 1x.
-      next = game.state.status === "flying" ? decide(game, opts) : null;
-      next?.catch(() => {}); // rejection is handled at the next await; keep it out of the console
-      const span = Number($("speed").value) ? (after.time - before.time) * 1000 / Number($("speed").value) : 0;
-      for (const start = performance.now(); performance.now() - start < span && !signal.aborted;) {
-        run.blend = (performance.now() - start) / span;
-        render();
+    for await (const frame of fly(run.game, opts)) {
+      run.frames.push(frame);
+      panel(opts);
+      // Animate this 0.2 s stage while fly() already waits on the next decision.
+      const speed = Number($("speed").value);
+      const span = speed ? (frame.after.time - frame.before.time) * 1000 / speed : 0;
+      for (const start = performance.now(); ;) {
+        const elapsed = performance.now() - start;
+        render(span ? elapsed / span : 1);
+        if (elapsed >= span || opts.signal.aborted) break;
         await new Promise(requestAnimationFrame);
       }
-      run.blend = 1;
-      before = after;
     }
     finish(opts);
   } catch (error) {
-    if (error.name !== "AbortError") $("notice").textContent = `${error.message}. Flight stopped.`;
-    else $("notice").textContent = "Flight aborted.";
+    $("notice").textContent = error.name === "AbortError" ? "Flight aborted." : `${error.message}. Flight stopped.`;
   } finally {
     run.abort = null;
     $("launch").textContent = "▲ Launch";
-    render();
+    panel(opts); render();
   }
 }
 
@@ -81,16 +66,16 @@ function finish(opts) {
     interventions: run.frames.filter(f => f.decision.intervened).length,
     latency_p50_ms: times[Math.floor(times.length / 2)] ?? 0,
     latency_p95_ms: times[Math.ceil(times.length * 0.95) - 1] ?? 0};
-  run.log.push({pilot: opts.mode, model: opts.mode === "baseline" ? "—" : opts.model, summary});
+  const model = opts.mode === "baseline" ? "—" : opts.model;
   const tr = document.createElement("tr");
-  for (const v of [opts.mode, run.log.at(-1).model, `${summary.seed} / ${summary.target + 1}`,
+  for (const v of [opts.mode, model, `${summary.seed} / ${summary.target + 1}`,
     summary.status.replaceAll("_", " "), summary.score, `${summary.interventions}/${summary.decisions}`,
     `${summary.latency_p50_ms.toFixed(0)} ms`]) {
     const td = document.createElement("td"); td.textContent = String(v); tr.append(td);
   }
   $("log").prepend(tr);
   // Same schema-1 shape as lunar-laya recordings, so its replay tooling can read the file.
-  const record = {schema_version: 1, pilot: {mode: opts.mode, model: run.log.at(-1).model, runtime: "ollama /v1/systemone"},
+  const record = {schema_version: 1, pilot: {mode: opts.mode, model, runtime: "ollama /v1/systemone"},
     world: {terrain: TERRAIN, pads: PADS, dt: DT, control_steps: CONTROL_STEPS},
     episodes: [{summary, frames: run.frames}]};
   URL.revokeObjectURL($("download").href);
@@ -99,7 +84,7 @@ function finish(opts) {
   $("download").hidden = false;
 }
 
-const command = c => `${["LEFT", "HOLD", "RIGHT"][c.turn + 1]} / ${Math.round(c.throttle * 100)}%`;
+const command = c => `${name(TURNS, c.turn).toUpperCase()} / ${Math.round(c.throttle * 100)}%`;
 
 function probabilities(answers) {
   $("probabilities").replaceChildren();
@@ -112,7 +97,7 @@ function probabilities(answers) {
     for (const [label, p] of Object.entries(answer.probabilities)) {
       const row = document.createElement("div"); row.className = "prob-row" + (label === answer.choice ? " selected" : "");
       const bar = document.createElement("div"); bar.className = "prob-bar";
-      const fill = document.createElement("i"); fill.style.width = `${Math.max(0, Math.min(100, p * 100))}%`;
+      const fill = document.createElement("i"); fill.style.width = `${clamp(p * 100, 0, 100)}%`;
       bar.append(fill);
       const l = document.createElement("span"); l.textContent = label;
       const r = document.createElement("span"); r.textContent = `${(p * 100).toFixed(0)}%`;
@@ -122,11 +107,10 @@ function probabilities(answers) {
   }
 }
 
-function render() {
-  if (!run.game) return;
-  const f = run.frame, flying = run.abort !== null;
-  const s = f ? f.before : run.game.snapshot(), pad = PADS[run.game.target];
-  const shown = flying || !f ? s : run.game.snapshot();
+// Text that changes once per stage: telemetry and the decision panel.
+function panel(opts) {
+  const f = run.frames.at(-1), live = run.abort && f;
+  const shown = live ? f.before : run.game.snapshot(), pad = PADS[run.game.target];
   $("mission-label").textContent = `SEED ${run.game.seed} / PAD 0${run.game.target + 1}`;
   $("altitude").textContent = `${Math.max(0, shown.y - pad[2] - RADIUS).toFixed(0)} m`;
   $("vertical").textContent = `${shown.vy.toFixed(1)} m/s`;
@@ -136,19 +120,22 @@ function render() {
   $("mission-time").textContent = `T+ ${shown.time.toFixed(2)} s`;
   $("tilt").textContent = `TILT ${shown.angle.toFixed(1)}°`;
   $("frame-label").textContent = `DECISION ${run.frames.length}`;
-  if (f) {
-    const d = f.decision;
-    $("proposed").textContent = command(d.proposed);
-    $("executed").textContent = command(d.executed);
-    $("latency").textContent = `${d.latency_ms.toFixed(0)} ms`;
-    $("prompt").textContent = d.prompt;
-    $("intervention").textContent = d.intervened ? "GUIDANCE OVERRIDE · Proposal replaced" :
-      $("pilot").value === "assisted" && d.answers ? "MODEL AGREES WITH GUIDANCE" : "DIRECT EXECUTION";
-    $("intervention").classList.toggle("warning", d.intervened);
-    probabilities(d.answers);
-  }
-  const end = !flying;
-  draw(end || !f ? shown : pose(f.before, f.after, run.blend), f?.decision, end);
+  if (!f) return;
+  const d = f.decision;
+  $("proposed").textContent = command(d.proposed);
+  $("executed").textContent = command(d.executed);
+  $("latency").textContent = `${d.latency_ms.toFixed(0)} ms`;
+  $("prompt").textContent = d.prompt;
+  $("intervention").textContent = d.intervened ? "GUIDANCE OVERRIDE · Proposal replaced" :
+    d.answers && opts.mode === "assisted" ? "MODEL AGREES WITH GUIDANCE" : "DIRECT EXECUTION";
+  $("intervention").classList.toggle("warning", d.intervened);
+  probabilities(d.answers);
+}
+
+// Canvas only; runs every animation frame while a stage plays.
+function render(blend = 1) {
+  const f = run.frames.at(-1), live = run.abort && f;
+  draw(live ? pose(f.before, f.after, blend) : run.game.snapshot(), f?.decision, !live);
 }
 
 // ---------- shared lander art ----------
@@ -186,15 +173,15 @@ function drawLander(ctx, u, { body = "#d6e6de", trim = "#f0f5eb", glass = "#3a62
 // back into the start state by the fraction of the stage the wall clock has covered.
 function pose(before, after, blend) {
   if (before.status !== "flying") return before;
-  const t = Math.max(0, Math.min(1, blend)), spin = wrap(after.angle - before.angle);
+  const t = clamp(blend, 0, 1), spin = wrap(after.angle - before.angle);
   return {...before, x: before.x + (after.x - before.x) * t, y: before.y + (after.y - before.y) * t,
     angle: before.angle + spin * t};
 }
 
 function draw(s, decision, end) {
-  const W = canvas.width, H = canvas.height, scale = W / 1100;
-  const px = x => 50 * scale + x * scale;
-  const py = y => H - 38 * scale - y * (H - 58 * scale) / 750;
+  const W = canvas.width, H = canvas.height, u = (H - 58) / 750; // u: metres to pixels, also the lander unit
+  const px = x => 50 + x;
+  const py = y => H - 38 - y * u;
   ctx.fillStyle = "#070e17"; ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 100; i++) {
     ctx.fillStyle = i % 7 ? "#263847" : "#687e8c";
@@ -202,9 +189,10 @@ function draw(s, decision, end) {
   }
   ctx.strokeStyle = "#142333"; ctx.lineWidth = 1;
   for (let x = 0; x <= 1000; x += 100) { ctx.beginPath(); ctx.moveTo(px(x), 0); ctx.lineTo(px(x), H - 38); ctx.stroke(); }
+  ctx.fillStyle = "#3b5366"; ctx.font = "10px monospace";
   for (let y = 100; y <= 700; y += 100) {
     ctx.beginPath(); ctx.moveTo(px(0), py(y)); ctx.lineTo(px(1000), py(y)); ctx.stroke();
-    ctx.fillStyle = "#3b5366"; ctx.font = "10px monospace"; ctx.fillText(String(y), 13, py(y) + 3);
+    ctx.fillText(String(y), 13, py(y) + 3);
   }
   const line = (points, color, width) => {
     ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width;
@@ -216,17 +204,17 @@ function draw(s, decision, end) {
   TERRAIN.forEach(([x, y]) => ctx.lineTo(px(x), py(y)));
   ctx.lineTo(px(1000), H); ctx.closePath(); ctx.fillStyle = "#14212d"; ctx.fill();
   line(TERRAIN, "#7b929e", 1.5);
+  ctx.font = "11px monospace";
   PADS.forEach((p, i) => {
     const selected = i === run.game.target;
     line([[p[0], p[2]], [p[1], p[2]]], selected ? "#90edd0" : "#678397", selected ? 4 : 2);
-    ctx.font = "11px monospace"; ctx.fillStyle = selected ? "#90edd0" : "#6d8596";
+    ctx.fillStyle = selected ? "#90edd0" : "#6d8596";
     ctx.fillText(`0${i + 1} / ${p[3]}×`, px(p[0]), py(p[2]) + 22);
   });
   const x = px(s.x), y = py(s.y);
   ctx.strokeStyle = "#244c46"; ctx.setLineDash([3, 7]); ctx.beginPath();
   ctx.moveTo(x, y + 24); ctx.lineTo(x, py(ground(s.x))); ctx.stroke(); ctx.setLineDash([]);
   ctx.save(); ctx.translate(x, y); ctx.rotate(s.angle * Math.PI / 180);
-  const u = (H - 58 * scale) / 750;
   if (!end && decision && s.fuel > 0 && decision.executed.throttle > 0) {
     const reach = (6 + 11 * decision.executed.throttle + Math.random()) * u;
     ctx.beginPath(); ctx.moveTo(-1.5 * u, 5 * u); ctx.lineTo(1.5 * u, 5 * u); ctx.lineTo(0, 5 * u + reach); ctx.closePath();
@@ -243,9 +231,11 @@ function draw(s, decision, end) {
 function preview() {
   if (run.abort) return;
   run.game = new Game(Number($("seed").value), Number($("pad").value));
-  run.frames = []; run.frame = null;
-  render();
+  run.frames = [];
+  panel(); render();
 }
+PADS.forEach((p, i) => $("pad").append(new Option(`0${i + 1} · ${p[3]}×`, i)));
+$("pad").value = 1;
 $("seed").oninput = $("pad").onchange = preview;
 $("random").onclick = () => { $("seed").value = Math.floor(Math.random() * 100000); preview(); };
 $("launch").onclick = launch;
