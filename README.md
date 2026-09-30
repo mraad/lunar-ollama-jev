@@ -15,7 +15,7 @@ static files, a local Ollama, and one stdlib HTTP server.
 for a score of 200. The right-hand panel is the model's live probability over
 each option.*
 
-This is the sibling of [lunar-laya](../lunar-laya), which flies the same
+This is the sibling of [lunar-laya](https://github.com/mraad/lunar-laya), which flies the same
 Atari-inspired world with the Laya decision model on Apple MLX from Python.
 Here the physics, guidance and prompt are a line-for-line JavaScript port,
 and the model call goes to Ollama's new `/v1/systemone` endpoint
@@ -216,7 +216,8 @@ node check.cjs
 `check.cjs` does three things and says which it skipped:
 
 1. Flies the baseline on 30 seed/pad combinations and expects 30 landings.
-2. If `../lunar-laya` is checked out beside this folder, starts the Python
+2. If [lunar-laya](https://github.com/mraad/lunar-laya) is checked out beside
+   this folder as `../lunar-laya`, starts the Python
    original from the same state, flies both baselines, and requires every
    prompt string and every state to match (to 1e-9). This is the proof that
    the port is faithful; it needs only Python 3 and the sibling's stdlib code,
@@ -240,13 +241,13 @@ check.cjs    the checks above
 
 ## Relationship to the other lunar projects
 
-- **lunar-laya** is the origin of the physics, the guidance rule, the prompt
+- **[lunar-laya](https://github.com/mraad/lunar-laya)** is the origin of the physics, the guidance rule, the prompt
   and the two questions. They were ported rather than copied so nothing here
   needs Python at run time; `check.cjs` keeps them in step. One deliberate
   difference: lunar-laya starts within 100 m of the target pad, this page
   starts anywhere over the map. The guidance rule still lands the baseline
   from all 90 seed/pad combinations tried (seeds 0–29, three pads).
-- **lunar-mpc-laya** replaces the guidance hint with a model-predictive
+- **[lunar-mpc-laya](https://github.com/mraad/lunar-mpc-laya)** replaces the guidance hint with a model-predictive
   controller and adds an engine fault. None of that is here; the guidance is
   the simple PD rule and the engine is healthy.
 - The lander drawing is the same chamfered box the other three projects use,
