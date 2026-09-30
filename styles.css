@@ -37,5 +37,5 @@ summary{cursor:pointer;font-size:12px;color:#afbfca}pre{white-space:pre-wrap;ove
 .table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
 th{text-align:left;color:var(--muted);font-weight:400}td,th{padding:11px 12px;border-bottom:1px solid var(--border)}td{font-family:monospace}
 footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--border);margin-top:30px;padding-top:20px;font:10px monospace;color:#627b8c}
-#notice{font:12px monospace;color:var(--amber);margin:16px 0}#notice:empty{display:none}[hidden]{display:none!important}
+#notice{font:12px monospace;color:var(--amber);margin:16px 0}#notice:empty{display:none}
 @media(max-width:1000px){.flight-grid{grid-template-columns:1fr}body{padding:18px 14px}.metrics strong{font-size:18px}}

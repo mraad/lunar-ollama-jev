@@ -41,17 +41,22 @@ box. Do not "fix" this in the app; it is an Ollama-side policy (`OLLAMA_ORIGINS`
 ## Architecture
 
 - `sim.js` is loaded by both the browser (plain script) and Node (`module.exports`
-  guard at the bottom). It holds physics (`Game`), PD `guidance`, the prompt
-  (`observation`), the two `QUESTIONS`, the Ollama client (`askJev`) and `decide`,
-  which mirrors lunar-laya's `Pilot.decide` contract: `baseline` flies guidance,
-  `jev` flies the model, `assisted` flies the model unless it disagrees with guidance.
-- `app.js` is DOM only: controls, the flight loop, canvas drawing, flight log,
-  recording download. Globals from `sim.js` are used directly (`Game`, `decide`,
-  `PADS`, `TERRAIN`, `ground`, `wrap`, `RADIUS`, `DT`, `CONTROL_STEPS`).
-- The flight loop pipelines: after stepping physics for stage N it immediately
-  requests decision N+1 and animates stage N while waiting, so model latency under
-  200 ms costs no wall time at 1x. The pending promise gets a no-op `.catch` so an
-  abort mid-animation does not surface as an unhandled rejection.
+  guard at the bottom, exporting only what `check.cjs` uses: `Game`, `fly`,
+  `decisionModels`, `QUESTIONS`). It holds physics (`Game`), PD `guidance`, the
+  prompt (`observation`), the two `QUESTIONS`, the Ollama client (`askJev`,
+  `decisionModels`), `decide`, which mirrors lunar-laya's `Pilot.decide` contract
+  (`baseline` flies guidance, `jev` flies the model, `assisted` flies the model
+  unless it disagrees with guidance), and `fly`, the async generator that runs one
+  whole flight and yields schema-1 frames `{before, decision, after}`.
+- `app.js` is DOM only: controls, animation pacing around `fly`, canvas drawing,
+  flight log, recording download. Globals from `sim.js` are used directly. `panel()`
+  writes the text that changes once per stage; `render(blend)` only draws the
+  canvas and runs every animation frame.
+- `fly` pipelines: after stepping physics for stage N it immediately requests
+  decision N+1 and yields frame N, so a consumer that animates the frame hides
+  model latency under 200 ms at 1x. The pending promise gets a no-op `.catch` so an
+  abort mid-animation does not surface as an unhandled rejection; the signal is also
+  checked after each decision so a `baseline` flight (no fetch) aborts too.
 - Decision latency for a 9B model is dominated by prompt processing of the ~640
   token state string, so quantization does not help and the prompt cache does not
   hit (the sentence changes at its start). Keep this in mind before adding text to
@@ -72,6 +77,7 @@ box. Do not "fix" this in the app; it is an Ollama-side policy (`OLLAMA_ORIGINS`
   tooling can read them.
 - Model dropdown lists only models whose `/api/tags` entry has the `decision`
   capability, sorted smallest first (nimble is ~0.7 s/decision here, tev1 ~90 ms).
+  That rule lives once, in `decisionModels`; pad options are built from `PADS`.
 
 ## Documentation conventions
 

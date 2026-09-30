@@ -231,8 +231,8 @@ node check.cjs
 ```text
 index.html   page layout and the in-page "How it works" note
 styles.css   dark mission-control theme, trimmed from lunar-laya's SPA
-sim.js       physics, guidance, prompt, the /v1/systemone client, decide()
-app.js       controls, flight loop, canvas drawing, flight log, download
+sim.js       physics, guidance, prompt, the /v1/systemone client, decide(), fly()
+app.js       controls, animation pacing, canvas drawing, flight log, download
 check.cjs    the checks above
 ```
 

@@ -157,7 +157,25 @@ async function decide(game, {mode, host, model, signal}) {
     latency_ms: performance.now() - start}};
 }
 
-if (typeof module !== "undefined") {
-  module.exports = {Game, guidance, observation, decide, askJev, ground, wrap, QUESTIONS, TURNS, THROTTLES,
-    TERRAIN, PADS, RADIUS, DT, CONTROL_STEPS};
+// Installed models that answer /v1/systemone, smallest first: the small one is the
+// one that keeps up with 1x playback.
+async function decisionModels(host) {
+  const {models} = await (await fetch(`${host}/api/tags`)).json();
+  return models.filter(m => m.capabilities?.includes("decision")).sort((a, b) => a.size - b.size);
 }
+
+// One flight as a stream of schema-1 frames. Decision N+1 is requested before frame N
+// is yielded, so a consumer that animates frame N hides model latency under one stage.
+async function* fly(game, opts, max = 900) {
+  let before = game.snapshot(), next = decide(game, opts);
+  while (game.state.status === "flying" && max-- > 0) {
+    const {command, decision} = await next;
+    opts.signal?.throwIfAborted(); // baseline never fetches, so the signal is checked here too
+    const after = game.step(command);
+    if (game.state.status === "flying") { next = decide(game, opts); next.catch(() => {}); }
+    yield {before, decision, after};
+    before = after;
+  }
+}
+
+if (typeof module !== "undefined") module.exports = {Game, fly, decisionModels, QUESTIONS};
